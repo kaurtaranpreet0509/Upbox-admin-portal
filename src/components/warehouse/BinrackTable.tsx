@@ -35,7 +35,7 @@ export function BinrackTable(props: {
                 <tr
                   key={row.id}
                   className={cn(
-                    'cursor-pointer transition hover:bg-indigo-50/40',
+                    'cursor-default transition hover:bg-indigo-50/40',
                     props.selectedId === row.id && 'bg-sky-50'
                   )}
                   onClick={() => props.onSelect(props.selectedId === row.id ? null : row.id)}

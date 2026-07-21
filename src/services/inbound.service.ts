@@ -137,6 +137,93 @@ function requireWorkerOnShift(workerId?: string | null) {
   return w
 }
 
+/** Product IDs already written into Locations inventory. */
+const locationSyncedProductIds = new Set<string>()
+
+/** Keep Locations (binracks) in sync when putaway places a product on a rack. */
+function applyPlacementToLocation(
+  rack: RackSlot,
+  product: { id: string; sku: string; barcode: string; description: string; brandId: string }
+) {
+  if (locationSyncedProductIds.has(product.id)) return
+  locationSyncedProductIds.add(product.id)
+
+  const code = rack.label.trim().toUpperCase()
+  let row = binracks.find((b) => b.locationCode.toUpperCase() === code)
+
+  if (!row) {
+    row = {
+      id: `bin-${rack.id}`,
+      locationCode: rack.label,
+      zoneType: rack.zoneType,
+      locationKind: 'product_shelf',
+      storageGroups: [],
+      capacity: { w: 1, h: 1, d: 1 },
+      fillPercent: 0,
+      skuCount: 0,
+      itemQty: 0,
+      hierarchyPath: ['zone-west'],
+      brandId: rack.zoneType === 'pick' ? rack.brandId : null,
+      maxUnits: Math.max(rack.capacity, 100),
+      filledUnits: 0,
+      lineItems: [],
+      stagedCartons: [],
+    }
+    binracks.push(row)
+  }
+
+  const existing = row.lineItems.find(
+    (li) => li.sku === product.sku && li.barcode === product.barcode
+  )
+  if (existing) {
+    existing.quantity += 1
+  } else {
+    const sameSku = row.lineItems.find((li) => li.sku === product.sku)
+    if (sameSku) {
+      sameSku.quantity += 1
+    } else {
+      row.lineItems.push({
+        id: `li-${product.id}-${Date.now()}`,
+        sku: product.sku,
+        barcode: product.barcode,
+        name: product.description,
+        batchNo: null,
+        status: 'Available',
+        fifo: row.lineItems.length + 1,
+        quantity: 1,
+        value: 0,
+        brandId: product.brandId,
+      })
+    }
+  }
+
+  row.filledUnits = row.lineItems.reduce((s, l) => s + l.quantity, 0)
+  row.itemQty = row.filledUnits
+  row.skuCount = new Set(row.lineItems.map((l) => l.sku)).size
+  row.fillPercent =
+    row.maxUnits > 0 ? Number(((row.filledUnits / row.maxUnits) * 100).toFixed(2)) : 0
+  if (row.zoneType === 'pick' && !row.brandId) {
+    row.brandId = product.brandId
+    const brand = brands.find((b) => b.id === product.brandId)
+    if (brand && !row.storageGroups.includes(brand.name)) {
+      row.storageGroups = [brand.name]
+    }
+  }
+}
+
+/** Catch up Locations for products already placed before sync existed. */
+function syncPlacedProductsIntoLocations() {
+  for (const carton of shipment.cartons) {
+    for (const product of carton.products) {
+      if (product.status !== 'PLACED' || !product.rackSlotId) continue
+      if (locationSyncedProductIds.has(product.id)) continue
+      const rack = rackSlots.find((r) => r.id === product.rackSlotId)
+      if (!rack || rack.zoneType === 'goods_in') continue
+      applyPlacementToLocation(rack, product)
+    }
+  }
+}
+
 export const inboundService = {
   async listShipments(): Promise<InboundShipment[]> {
     await delay()
@@ -316,25 +403,41 @@ export const inboundService = {
     requireWorkerOnShift(putawayWorkerId ?? carton.assignedWorkerId)
     const product = carton.products.find((p) => p.id === productId)
     if (!product) throw new Error('Product not found')
+    if (product.status === 'PLACED') throw new Error('Product already placed')
     const rack = rackSlots.find((r) => r.id === rackSlotId)
     if (!rack) throw new Error('Rack not found')
-    if (rack.status === 'FULL') throw new Error('RACK_FULL')
-    if (rack.brandId && rack.brandId !== product.brandId) {
-      throw new Error('Rack belongs to a different brand')
+    if (rack.zoneType === 'goods_in') {
+      throw new Error('Cannot put products on dock staging — scan a Pick (P) or Inspection (I) rack')
     }
-    if (!rack.brandId) {
-      rack.brandId = product.brandId
+    if (rack.status === 'FULL') throw new Error('RACK_FULL')
+
+    // Pick racks stay brand-dedicated; Inspection accepts any product
+    if (rack.zoneType === 'pick') {
+      if (rack.brandId && rack.brandId !== product.brandId) {
+        throw new Error('Rack belongs to a different brand — stop this rack and scan another')
+      }
+      if (!rack.brandId) {
+        rack.brandId = product.brandId
+        rack.status = 'BRAND_ASSIGNED'
+      }
+    } else if (rack.zoneType === 'inspection' && rack.status === 'EMPTY') {
       rack.status = 'BRAND_ASSIGNED'
     }
+
     product.status = 'PLACED'
     product.rackSlotId = rack.id
     rack.filled += 1
     if (rack.filled >= rack.capacity) rack.status = 'FULL'
 
+    applyPlacementToLocation(rack, product)
+
     const actorId = putawayWorkerId ?? carton.assignedWorkerId
     if (actorId) {
       const w = workers.find((x) => x.id === actorId)
-      if (w) w.activity.unshift(makeWorkEvent('product_placed', product.sku))
+      if (w) {
+        const zoneTag = rack.zoneType === 'inspection' ? 'I' : 'P'
+        w.activity.unshift(makeWorkEvent('product_placed', `${product.sku} → ${rack.label} (${zoneTag})`))
+      }
     }
 
     if (carton.products.every((p) => p.status === 'PLACED')) {
@@ -425,6 +528,7 @@ export const warehouseService = {
     hierarchyIds?: string[]
   }): Promise<BinrackRow[]> {
     await delay()
+    syncPlacedProductsIntoLocations()
     let rows = binracks.map((r) => enrichBinrack(structuredClone(r)))
     const search = filters?.search?.trim().toLowerCase()
     if (search) {
@@ -493,6 +597,7 @@ export const warehouseService = {
 
   async getBinrack(id: string): Promise<BinrackRow | null> {
     await delay(50)
+    syncPlacedProductsIntoLocations()
     const row = binracks.find((b) => b.id === id)
     return row ? enrichBinrack(structuredClone(row)) : null
   },

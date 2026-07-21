@@ -109,8 +109,8 @@ export const hierarchy: HierarchyNode[] = [
         label: 'Aisle A',
         type: 'aisle',
         children: [
-          { id: 'stack-a1', label: 'Stack A.1', type: 'stack' },
-          { id: 'stack-a2', label: 'Stack A.2', type: 'stack' },
+          { id: 'stack-a1', label: 'Bay 1', type: 'stack' },
+          { id: 'stack-a2', label: 'Bay 2', type: 'stack' },
         ],
       },
       {
@@ -118,8 +118,8 @@ export const hierarchy: HierarchyNode[] = [
         label: 'Aisle B',
         type: 'aisle',
         children: [
-          { id: 'stack-b1', label: 'Stack B.1', type: 'stack' },
-          { id: 'stack-b2', label: 'Stack B.2', type: 'stack' },
+          { id: 'stack-b1', label: 'Bay 1', type: 'stack' },
+          { id: 'stack-b2', label: 'Bay 2', type: 'stack' },
         ],
       },
     ],
@@ -230,14 +230,14 @@ export let shipment: InboundShipment = {
 }
 
 export let rackSlots: RackSlot[] = [
-  { id: 'rack-nike-1', label: 'A3-Bay2', brandId: 'brand-nike', capacity: 20, filled: 8, status: 'BRAND_ASSIGNED', zoneType: 'pick' },
-  { id: 'rack-adidas-1', label: 'A4-Bay1', brandId: 'brand-adidas', capacity: 20, filled: 5, status: 'BRAND_ASSIGNED', zoneType: 'pick' },
-  { id: 'rack-puma-1', label: 'B2-Bay3', brandId: 'brand-puma', capacity: 15, filled: 15, status: 'FULL', zoneType: 'pick' },
-  { id: 'rack-empty-1', label: 'B3-Bay1', brandId: null, capacity: 25, filled: 0, status: 'EMPTY', zoneType: 'pick' },
-  { id: 'rack-empty-2', label: 'B3-Bay2', brandId: null, capacity: 25, filled: 0, status: 'EMPTY', zoneType: 'pick' },
-  { id: 'rack-empty-3', label: 'C1-Bay1', brandId: null, capacity: 30, filled: 0, status: 'EMPTY', zoneType: 'pick' },
-  { id: 'rack-gi-1', label: 'G1-Dock', brandId: null, capacity: 100, filled: 0, status: 'EMPTY', zoneType: 'goods_in' },
-  { id: 'rack-qa-1', label: 'QA-01', brandId: null, capacity: 40, filled: 2, status: 'BRAND_ASSIGNED', zoneType: 'inspection' },
+  { id: 'rack-nike-1', label: 'A-1-1-P', brandId: 'brand-nike', capacity: 20, filled: 8, status: 'BRAND_ASSIGNED', zoneType: 'pick' },
+  { id: 'rack-adidas-1', label: 'B-1-1-P', brandId: 'brand-adidas', capacity: 20, filled: 5, status: 'BRAND_ASSIGNED', zoneType: 'pick' },
+  { id: 'rack-puma-1', label: 'B-2-1-P', brandId: 'brand-puma', capacity: 15, filled: 15, status: 'FULL', zoneType: 'pick' },
+  { id: 'rack-empty-1', label: 'A-2-2-P', brandId: null, capacity: 25, filled: 0, status: 'EMPTY', zoneType: 'pick' },
+  { id: 'rack-empty-2', label: 'A-3-1-P', brandId: null, capacity: 25, filled: 0, status: 'EMPTY', zoneType: 'pick' },
+  { id: 'rack-empty-3', label: 'B-3-1-P', brandId: null, capacity: 30, filled: 0, status: 'EMPTY', zoneType: 'pick' },
+  { id: 'rack-gi-1', label: 'D-1', brandId: null, capacity: 100, filled: 0, status: 'EMPTY', zoneType: 'goods_in' },
+  { id: 'rack-qa-1', label: 'A-2-1-I', brandId: null, capacity: 40, filled: 2, status: 'BRAND_ASSIGNED', zoneType: 'inspection' },
 ]
 
 function bin(
@@ -282,7 +282,7 @@ export let binracks: BinrackRow[] = [
   // Goods In = floor / dock bays for whole master cartons (not product shelves)
   bin(
     'bin-dock-1',
-    'DOCK-BAY-1',
+    'D-1',
     'goods_in',
     ['zone-west', 'aisle-dock', 'bay-dock-1'],
     0,
@@ -295,7 +295,7 @@ export let binracks: BinrackRow[] = [
   ),
   bin(
     'bin-dock-2',
-    'DOCK-BAY-2',
+    'D-2',
     'goods_in',
     ['zone-west', 'aisle-dock', 'bay-dock-2'],
     0,
@@ -308,7 +308,7 @@ export let binracks: BinrackRow[] = [
   ),
   bin(
     'bin-b1p',
-    'B1.P.01.W',
+    'A-1-1-P',
     'pick',
     ['zone-west', 'aisle-a', 'stack-a1'],
     0.17,
@@ -345,7 +345,7 @@ export let binracks: BinrackRow[] = [
   ),
   bin(
     'bin-b1qa',
-    'B1.QA.01.W',
+    'A-2-1-I',
     'inspection',
     ['zone-west', 'aisle-a', 'stack-a2'],
     0.34,
@@ -370,7 +370,7 @@ export let binracks: BinrackRow[] = [
   ),
   bin(
     'bin-b2p',
-    'B2.P.01.W',
+    'B-1-1-P',
     'pick',
     ['zone-west', 'aisle-b', 'stack-b1'],
     0.26,
@@ -395,7 +395,7 @@ export let binracks: BinrackRow[] = [
   ),
   bin(
     'bin-b2qa',
-    'B2.QA.01.W',
+    'B-2-2-I',
     'inspection',
     ['zone-west', 'aisle-b', 'stack-b2'],
     0,
@@ -407,7 +407,7 @@ export let binracks: BinrackRow[] = [
   ),
   bin(
     'bin-b4p',
-    'B4.P.01.W',
+    'B-2-1-P',
     'pick',
     ['zone-west', 'aisle-b', 'stack-b2'],
     1.63,
@@ -432,7 +432,7 @@ export let binracks: BinrackRow[] = [
   ),
   bin(
     'bin-b5p',
-    'B5.P.01.W',
+    'A-2-2-P',
     'pick',
     ['zone-west', 'aisle-a', 'stack-a2'],
     0,
@@ -452,10 +452,10 @@ export let stockMoves: StockMove[] = [
     sku: '10001',
     batchNo: null,
     fromBinrackId: 'bin-b1p',
-    fromLabel: 'B1.P.01.W',
+    fromLabel: 'A-1-1-P',
     fromZone: 'pick',
     toBinrackId: 'bin-b1qa',
-    toLabel: 'B1.QA.01.W',
+    toLabel: 'A-2-1-I',
     toZone: 'inspection',
     quantity: 5,
     state: 'Open',
@@ -468,10 +468,10 @@ export let stockMoves: StockMove[] = [
     sku: '10003',
     batchNo: null,
     fromBinrackId: 'bin-b2p',
-    fromLabel: 'B2.P.01.W',
+    fromLabel: 'B-1-1-P',
     fromZone: 'pick',
     toBinrackId: 'bin-b1qa',
-    toLabel: 'B1.QA.01.W',
+    toLabel: 'A-2-1-I',
     toZone: 'inspection',
     quantity: 30,
     state: 'Open',
@@ -484,7 +484,7 @@ export let stockMoves: StockMove[] = [
     sku: '10005',
     batchNo: null,
     fromBinrackId: 'bin-b4p',
-    fromLabel: 'B4.P.01.W',
+    fromLabel: 'B-2-1-P',
     fromZone: 'pick',
     toBinrackId: null,
     toLabel: null,

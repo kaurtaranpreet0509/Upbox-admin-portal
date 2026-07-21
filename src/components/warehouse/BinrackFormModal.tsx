@@ -26,10 +26,10 @@ const EMPTY: BinrackFormValues = {
 const STACK_OPTIONS = [
   { id: 'bay-dock-1', label: 'Warehouse West → Dock staging → Bay 1' },
   { id: 'bay-dock-2', label: 'Warehouse West → Dock staging → Bay 2' },
-  { id: 'stack-a1', label: 'Warehouse West → Aisle A → Stack A.1' },
-  { id: 'stack-a2', label: 'Warehouse West → Aisle A → Stack A.2' },
-  { id: 'stack-b1', label: 'Warehouse West → Aisle B → Stack B.1' },
-  { id: 'stack-b2', label: 'Warehouse West → Aisle B → Stack B.2' },
+  { id: 'stack-a1', label: 'Warehouse West → Aisle A → Bay 1' },
+  { id: 'stack-a2', label: 'Warehouse West → Aisle A → Bay 2' },
+  { id: 'stack-b1', label: 'Warehouse West → Aisle B → Bay 1' },
+  { id: 'stack-b2', label: 'Warehouse West → Aisle B → Bay 2' },
 ]
 
 function pathForStack(stackId: string): string[] {
@@ -96,7 +96,7 @@ export function BinrackFormModal(props: {
             <input
               value={values.locationCode}
               onChange={(e) => set('locationCode', e.target.value)}
-              placeholder={isGoodsIn ? 'e.g. DOCK-BAY-3' : 'e.g. B6.P.01.W'}
+              placeholder={isGoodsIn ? 'e.g. D-3' : 'e.g. A-1-2-P'}
               className="mt-1 w-full rounded-lg border border-slate-300 px-3 py-2 text-sm font-mono"
             />
           </label>

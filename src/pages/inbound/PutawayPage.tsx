@@ -2,14 +2,14 @@ import { useMemo, useState } from 'react'
 import { PageHeader } from '@/layout/PageHeader'
 import { ScanInput } from '@/components/common/ScanInput'
 import { ScanFeedbackCard } from '@/components/common/ScanFeedbackCard'
-import { CartonStatusBadge } from '@/components/common/Badges'
+import { CartonStatusBadge, ZoneTypeBadge } from '@/components/common/Badges'
 import { useAuthStore } from '@/store/useAuthStore'
 import { useMyCartons, useInvalidateInbound } from '@/hooks/useInbound'
 import { inboundService } from '@/services/inbound.service'
-import type { MasterCarton, ProductUnit, RackSlot, Brand } from '@/types/inbound'
+import type { MasterCarton, RackSlot } from '@/types/inbound'
 import { cn } from '@/lib/cn'
 
-type Step = 'scan_carton' | 'scan_product' | 'scan_rack' | 'rack_full'
+type Step = 'scan_carton' | 'scan_rack' | 'scan_products'
 
 export function PutawayPage() {
   const user = useAuthStore((s) => s.user)
@@ -21,9 +21,8 @@ export function PutawayPage() {
 
   const [step, setStep] = useState<Step>('scan_carton')
   const [carton, setCarton] = useState<MasterCarton | null>(null)
-  const [product, setProduct] = useState<ProductUnit | null>(null)
-  const [brand, setBrand] = useState<Brand | null>(null)
-  const [targetRack, setTargetRack] = useState<RackSlot | null>(null)
+  const [activeRack, setActiveRack] = useState<RackSlot | null>(null)
+  const [sessionPlaced, setSessionPlaced] = useState(0)
   const [feedback, setFeedback] = useState<{
     tone: 'success' | 'error' | 'warn'
     title: string
@@ -35,14 +34,14 @@ export function PutawayPage() {
     [carton]
   )
   const total = carton?.productCount ?? 0
+  const remaining = total - placed
 
   const refreshCarton = async (cartonId: string) => {
     const updated = await inboundService.getCarton(cartonId)
     if (!updated || updated.status === 'COMPLETE') {
       setCarton(null)
-      setProduct(null)
-      setBrand(null)
-      setTargetRack(null)
+      setActiveRack(null)
+      setSessionPlaced(0)
       setStep('scan_carton')
       invalidate()
       return null
@@ -52,14 +51,32 @@ export function PutawayPage() {
     return updated
   }
 
-  const resetProductLoop = async () => {
-    if (!carton) return
-    const updated = await refreshCarton(carton.id)
-    if (!updated) return
-    setProduct(null)
-    setBrand(null)
-    setTargetRack(null)
-    setStep('scan_product')
+  const openCarton = async (opened: MasterCarton) => {
+    setCarton(opened)
+    setActiveRack(null)
+    setSessionPlaced(0)
+    setStep('scan_rack')
+    setFeedback({ tone: 'success', title: `${opened.id} opened`, detail: 'Scan a Pick (P) or Inspection (I) rack' })
+    invalidate()
+  }
+
+  const stopRack = () => {
+    const label = activeRack?.label
+    setActiveRack(null)
+    setSessionPlaced(0)
+    setStep('scan_rack')
+    setFeedback({
+      tone: 'warn',
+      title: label ? `Stopped rack ${label}` : 'Rack stopped',
+      detail: 'Scan another Pick (P) or Inspection (I) rack',
+    })
+  }
+
+  const closeCarton = () => {
+    setCarton(null)
+    setActiveRack(null)
+    setSessionPlaced(0)
+    setStep('scan_carton')
   }
 
   return (
@@ -70,19 +87,16 @@ export function PutawayPage() {
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2 rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm">
           <span className="font-semibold text-slate-900">
             {carton.id} · Progress {placed} / {total}
+            {remaining > 0 ? (
+              <span className="ml-2 font-normal text-slate-500">({remaining} left)</span>
+            ) : null}
           </span>
           <div className="flex items-center gap-2">
             <CartonStatusBadge status={carton.status} />
             <button
               type="button"
               className="cursor-pointer rounded-lg border border-slate-300 px-2 py-1 text-xs font-semibold text-slate-600 hover:bg-slate-50"
-              onClick={() => {
-                setCarton(null)
-                setProduct(null)
-                setBrand(null)
-                setTargetRack(null)
-                setStep('scan_carton')
-              }}
+              onClick={closeCarton}
             >
               Close carton
             </button>
@@ -103,10 +117,7 @@ export function PutawayPage() {
                     workerId ?? '',
                     isSupervisor
                   )
-                  setCarton(opened)
-                  setStep('scan_product')
-                  setFeedback({ tone: 'success', title: `${opened.id} opened` })
-                  invalidate()
+                  await openCarton(opened)
                 } catch (e) {
                   setFeedback({
                     tone: 'error',
@@ -126,16 +137,14 @@ export function PutawayPage() {
                   <button
                     key={c.id}
                     type="button"
-                    className="cursor-pointer flex w-full items-center justify-between rounded-xl border border-slate-200 px-3 py-2.5 text-left text-sm hover:bg-slate-50"
+                    className="flex w-full cursor-pointer items-center justify-between rounded-xl border border-slate-200 px-3 py-2.5 text-left text-sm hover:bg-slate-50"
                     onClick={async () => {
                       const opened = await inboundService.openCarton(
                         c.id,
                         workerId ?? '',
                         isSupervisor
                       )
-                      setCarton(opened)
-                      setStep('scan_product')
-                      invalidate()
+                      await openCarton(opened)
                     }}
                   >
                     <span className="font-semibold">{c.id}</span>
@@ -156,123 +165,144 @@ export function PutawayPage() {
           </>
         ) : null}
 
-        {step === 'scan_product' && carton ? (
-          <>
+        {step === 'scan_rack' && carton ? (
+          <div className="space-y-3">
+            <div className="rounded-xl border border-sky-200 bg-sky-50 px-4 py-3 text-sm text-sky-950">
+              <p className="font-semibold">1. Scan a rack</p>
+              <p className="mt-1 text-xs text-sky-800">
+                Use a Pick rack (<span className="font-mono font-bold">…-P</span>) or Inspection rack (
+                <span className="font-mono font-bold">…-I</span>). Then keep scanning products into it.
+              </p>
+            </div>
             <ScanInput
-              placeholder="Scan product barcode…"
+              placeholder="Scan rack (e.g. A-1-1-P or A-2-1-I)…"
               onScan={async (barcode) => {
                 try {
-                  const result = await inboundService.scanProduct(barcode, carton.id)
-                  const refreshed = await inboundService.getCarton(carton.id)
-                  if (refreshed) setCarton(refreshed)
-                  setProduct(result.product)
-                  setBrand(result.brand)
-                  setTargetRack(result.targetRack)
-                  setStep(result.targetRack?.status === 'FULL' ? 'rack_full' : 'scan_rack')
+                  const racks = await inboundService.getRacks()
+                  const rack =
+                    racks.find(
+                      (r) =>
+                        r.label.toLowerCase() === barcode.trim().toLowerCase() ||
+                        r.id === barcode.trim()
+                    ) ?? null
+                  if (!rack) throw new Error('Rack not found')
+                  if (rack.zoneType === 'goods_in') {
+                    throw new Error('Dock staging is for cartons only — scan a Pick (P) or Inspection (I) rack')
+                  }
+                  if (rack.status === 'FULL') {
+                    throw new Error(`Rack ${rack.label} is full — scan another rack`)
+                  }
+                  setActiveRack(rack)
+                  setSessionPlaced(0)
+                  setStep('scan_products')
                   setFeedback({
                     tone: 'success',
-                    title: 'Product found',
-                    detail: `${result.product.sku} · ${result.brand.name}`,
+                    title: `Working on ${rack.label}`,
+                    detail:
+                      rack.zoneType === 'inspection'
+                        ? 'Inspection rack — scan products to place here'
+                        : 'Pick rack — scan products to place here',
                   })
                 } catch (e) {
                   setFeedback({
                     tone: 'error',
-                    title: 'Product scan failed',
+                    title: 'Rack scan failed',
                     detail: e instanceof Error ? e.message : 'Error',
                   })
                   throw e
                 }
               }}
             />
-          </>
+          </div>
         ) : null}
 
-        {(step === 'scan_rack' || step === 'rack_full') && product && brand ? (
+        {step === 'scan_products' && carton && activeRack ? (
           <div className="space-y-3">
-            <div className="rounded-xl border border-emerald-200 bg-emerald-50/50 p-4">
-              <p className="text-sm font-bold text-emerald-900">Product found</p>
-              <p className="mt-1 text-sm text-slate-800">
-                SKU: <strong>{product.sku}</strong> · Brand: <strong>{brand.name}</strong>
-              </p>
-              <p className="mt-1 text-xs text-slate-600">{product.description}</p>
-              {targetRack && step === 'scan_rack' ? (
-                <div className="mt-3 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-sm">
-                  <p className="font-semibold text-sky-900">Target rack: {targetRack.label}</p>
-                  <p className="mt-1 text-xs text-sky-800">
-                    Fill: {targetRack.filled} / {targetRack.capacity} (
-                    {Math.round((targetRack.filled / targetRack.capacity) * 100)}%)
-                  </p>
-                  <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-sky-100">
-                    <div
-                      className="h-full bg-sky-500"
-                      style={{
-                        width: `${Math.min(100, (targetRack.filled / targetRack.capacity) * 100)}%`,
-                      }}
-                    />
-                  </div>
+            <div className="flex flex-wrap items-start justify-between gap-3 rounded-xl border border-emerald-200 bg-emerald-50/60 p-4">
+              <div>
+                <div className="mb-1 flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-bold text-emerald-900">Active rack: {activeRack.label}</p>
+                  <ZoneTypeBadge zone={activeRack.zoneType} />
                 </div>
-              ) : null}
+                <p className="text-xs text-emerald-800">
+                  Fill: {activeRack.filled} / {activeRack.capacity} · Placed this session: {sessionPlaced}
+                </p>
+                <div className="mt-2 h-1.5 w-48 max-w-full overflow-hidden rounded-full bg-emerald-100">
+                  <div
+                    className="h-full bg-emerald-500"
+                    style={{
+                      width: `${Math.min(100, (activeRack.filled / activeRack.capacity) * 100)}%`,
+                    }}
+                  />
+                </div>
+                <p className="mt-2 text-xs text-slate-600">
+                  Keep scanning products into this rack. When done here, stop and scan another rack.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={stopRack}
+                className="cursor-pointer rounded-lg bg-slate-800 px-3 py-2 text-xs font-bold text-white hover:bg-slate-700"
+              >
+                Stop this rack
+              </button>
             </div>
 
-            {step === 'rack_full' ? (
-              <div className="rounded-xl border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-950">
-                Rack {targetRack?.label ?? ''} is full. Scan any empty rack to claim it for{' '}
-                <strong>{brand.name}</strong>.
-              </div>
-            ) : null}
-
             <ScanInput
-              placeholder={
-                step === 'rack_full' ? 'Scan empty rack label…' : 'Scan rack label to confirm…'
-              }
+              placeholder="Scan product barcode to place on this rack…"
               onScan={async (barcode) => {
-                if (!carton || !product) return
+                if (!carton || !activeRack) return
                 try {
-                  const racks = await inboundService.getRacks()
-                  const rack =
-                    racks.find((r) => r.label === barcode || r.id === barcode) ?? null
-                  if (!rack) throw new Error('Rack not found')
-
-                  if (step === 'rack_full') {
-                    if (rack.status !== 'EMPTY' && rack.filled > 0) {
-                      throw new Error('Please scan an empty rack')
-                    }
-                    const claimed = await inboundService.claimEmptyRack(rack.id, brand.id)
-                    await inboundService.confirmPlacement(product.id, claimed.id, carton.id, workerId)
-                    setFeedback({
-                      tone: 'success',
-                      title: `Placed on new rack ${claimed.label}`,
-                      detail: `Claimed for ${brand.name}`,
-                    })
-                    await resetProductLoop()
-                    return
-                  }
-
-                  if (targetRack && rack.id !== targetRack.id && rack.brandId !== brand.id) {
-                    throw new Error(`Wrong rack — expected ${targetRack.label}`)
-                  }
-
+                  const result = await inboundService.scanProduct(barcode, carton.id)
                   try {
-                    await inboundService.confirmPlacement(product.id, rack.id, carton.id, workerId)
-                    setFeedback({ tone: 'success', title: `Placed on ${rack.label}` })
-                    await resetProductLoop()
+                    await inboundService.confirmPlacement(
+                      result.product.id,
+                      activeRack.id,
+                      carton.id,
+                      workerId
+                    )
                   } catch (e) {
                     if (e instanceof Error && e.message === 'RACK_FULL') {
-                      setTargetRack(rack)
-                      setStep('rack_full')
+                      setActiveRack(null)
+                      setSessionPlaced(0)
+                      setStep('scan_rack')
                       setFeedback({
                         tone: 'warn',
-                        title: 'Rack is full',
-                        detail: 'Scan an empty rack to claim for this brand.',
+                        title: `Rack ${activeRack.label} is full`,
+                        detail: 'Scan another Pick (P) or Inspection (I) rack.',
                       })
                       return
                     }
                     throw e
                   }
+
+                  const racks = await inboundService.getRacks()
+                  const refreshedRack = racks.find((r) => r.id === activeRack.id) ?? null
+                  if (refreshedRack) setActiveRack(refreshedRack)
+                  setSessionPlaced((n) => n + 1)
+
+                  const updated = await refreshCarton(carton.id)
+                  setFeedback({
+                    tone: 'success',
+                    title: `Placed ${result.product.sku}`,
+                    detail: `On ${activeRack.label} · ${result.brand.name}`,
+                  })
+
+                  if (!updated) return
+                  if (refreshedRack?.status === 'FULL') {
+                    setFeedback({
+                      tone: 'warn',
+                      title: `Rack ${activeRack.label} is now full`,
+                      detail: 'Stopped — scan another rack to continue.',
+                    })
+                    setActiveRack(null)
+                    setSessionPlaced(0)
+                    setStep('scan_rack')
+                  }
                 } catch (e) {
                   setFeedback({
                     tone: 'error',
-                    title: 'Rack scan failed',
+                    title: 'Product scan failed',
                     detail: e instanceof Error ? e.message : 'Error',
                   })
                   throw e
