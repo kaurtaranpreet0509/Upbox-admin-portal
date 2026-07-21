@@ -5,9 +5,16 @@ import { LoadingPanel } from '@/components/common/UpboxLoading'
 import { ActionsMenu } from '@/components/warehouse/ActionsMenu'
 import { CapacityFilterPanel } from '@/components/warehouse/CapacityFilterPanel'
 import { HierarchyPickerModal } from '@/components/warehouse/HierarchyPickerModal'
-import { BinrackTable } from '@/components/warehouse/BinrackTable'
 import { BinrackFormModal } from '@/components/warehouse/BinrackFormModal'
-import { useBinracks, useHierarchy, useInvalidateInbound } from '@/hooks/useInbound'
+import { BagFormModal } from '@/components/warehouse/BagFormModal'
+import {
+  BinrackExpandList,
+  GoodsInExpandList,
+  InspectionExpandList,
+  LocationsTrolleyExpandList,
+} from '@/components/warehouse/LocationExpandLists'
+import { LocationsBrowserPage } from '@/pages/inventory/LocationsBrowserPage'
+import { useBinracks, useHierarchy, useInvalidateInbound, useTrolleyBags } from '@/hooks/useInbound'
 import { warehouseService } from '@/services/inbound.service'
 import { useAuthStore } from '@/store/useAuthStore'
 import type { BinrackRow, CapacityRule, ZoneType } from '@/types/inbound'
@@ -21,12 +28,36 @@ const defaultRules: CapacityRule[] = CAPACITY_OPS.map(({ op }) => ({
   enabled: false,
 }))
 
+function matchesCapacity(fill: number, rules: CapacityRule[]): boolean {
+  const active = rules.filter((r) => r.enabled)
+  if (active.length === 0) return true
+  return active.every((r) => {
+    switch (r.op) {
+      case 'eq':
+        return fill === r.value
+      case 'lt':
+        return fill < r.value
+      case 'gt':
+        return fill > r.value
+      case 'lte':
+        return fill <= r.value
+      case 'gte':
+        return fill >= r.value
+      default:
+        return true
+    }
+  })
+}
+
+type LocationView = 'goods_in' | 'binracks' | 'inspection' | 'trolleys' | 'floor_map'
+
 export function WarehouseManagementPage() {
   const hasRole = useAuthStore((s) => s.hasRole)
   const user = useAuthStore((s) => s.user)
   const isSupervisor = hasRole('WMS_SUPERVISOR') || user?.userType === 'SUPER_ADMIN'
   const invalidate = useInvalidateInbound()
 
+  const [view, setView] = useState<LocationView>('goods_in')
   const [search, setSearch] = useState('')
   const [draftSearch, setDraftSearch] = useState('')
   const [openPanel, setOpenPanel] = useState<'filter' | 'hierarchy' | 'actions' | null>(null)
@@ -37,7 +68,9 @@ export function WarehouseManagementPage() {
   const [capacityRules, setCapacityRules] = useState<CapacityRule[]>(defaultRules)
   const [hierarchyIds, setHierarchyIds] = useState<string[]>([])
   const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [selectedBagLabel, setSelectedBagLabel] = useState<string | null>(null)
   const [formMode, setFormMode] = useState<'create' | 'edit' | null>(null)
+  const [bagFormMode, setBagFormMode] = useState<'create' | 'edit' | null>(null)
   const [toast, setToast] = useState<string | null>(null)
 
   const filters = useMemo(
@@ -47,9 +80,9 @@ export function WarehouseManagementPage() {
 
   const binsQ = useBinracks(filters)
   const hierQ = useHierarchy()
+  const trolleysQ = useTrolleyBags()
 
-  const selected: BinrackRow | null =
-    binsQ.data?.find((r) => r.id === selectedId) ?? null
+  const selected: BinrackRow | null = binsQ.data?.find((r) => r.id === selectedId) ?? null
 
   const showToast = (msg: string) => {
     setToast(msg)
@@ -79,10 +112,99 @@ export function WarehouseManagementPage() {
     showToast('Cleared filters and hierarchy')
   }
 
+  const viewRows = useMemo(() => {
+    const rows = binsQ.data ?? []
+    if (view === 'goods_in') {
+      return rows.filter((r) => r.locationKind === 'carton_staging' || r.zoneType === 'goods_in')
+    }
+    if (view === 'binracks') {
+      return rows.filter((r) => r.zoneType === 'pick')
+    }
+    if (view === 'inspection') {
+      return rows.filter((r) => r.zoneType === 'inspection' || r.locationKind === 'inspection_hold')
+    }
+    return rows
+  }, [binsQ.data, view])
+
+  const trolleyBags = useMemo(() => {
+    const bags = trolleysQ.data ?? []
+    const q = search.trim().toLowerCase()
+    return bags.filter((bag) => {
+      if (q) {
+        const hit =
+          bag.label.toLowerCase().includes(q) ||
+          bag.cartonIds.some((id) => id.toLowerCase().includes(q)) ||
+          bag.products.some(
+            (p) =>
+              p.sku.toLowerCase().includes(q) ||
+              p.barcode.toLowerCase().includes(q) ||
+              p.description.toLowerCase().includes(q) ||
+              p.cartonId.toLowerCase().includes(q) ||
+              p.cartonBarcode.toLowerCase().includes(q)
+          )
+        if (!hit) return false
+      }
+      // Occupancy vs mock bag capacity of 20 units (same as list fill %)
+      const fillPercent = bag.productCount === 0 ? 0 : Math.min(100, (bag.productCount / 20) * 100)
+      if (!matchesCapacity(fillPercent, capacityRules)) return false
+      return true
+    })
+  }, [trolleysQ.data, search, capacityRules])
+
+  const searchPlaceholder =
+    view === 'goods_in'
+      ? 'Carton or bay…'
+      : view === 'trolleys'
+        ? 'Bag, trolley, or SKU…'
+        : view === 'inspection'
+          ? 'Hold or product…'
+          : 'SKU or location…'
+
+  const lockedZoneType: ZoneType | undefined =
+    view === 'goods_in' ? 'goods_in' : view === 'binracks' ? 'pick' : view === 'inspection' ? 'inspection' : undefined
+
+  const hasSelection =
+    view === 'trolleys' ? !!selectedBagLabel : !!selectedId
+
   return (
     <div>
       <PageHeader title="Locations" />
 
+      <div className="mb-4 flex flex-wrap gap-2">
+        {(
+          [
+            { id: 'goods_in' as const, label: 'Goods In' },
+            { id: 'binracks' as const, label: 'Binracks' },
+            { id: 'inspection' as const, label: 'Inspection' },
+            { id: 'trolleys' as const, label: 'Trolley / bag' },
+            { id: 'floor_map' as const, label: 'Floor map' },
+          ] as const
+        ).map((tab) => (
+          <button
+            key={tab.id}
+            type="button"
+            onClick={() => {
+              setView(tab.id)
+              setSelectedId(null)
+              setSelectedBagLabel(null)
+              setFormMode(null)
+              setBagFormMode(null)
+            }}
+            className={cn(
+              'cursor-pointer rounded-xl px-4 py-2 text-sm font-semibold transition',
+              view === tab.id
+                ? 'bg-primary-600 text-white shadow-sm'
+                : 'border border-slate-300 bg-white text-slate-700 hover:bg-slate-50'
+            )}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {view === 'floor_map' ? <LocationsBrowserPage embedded /> : null}
+
+      {view !== 'floor_map' ? (
       <div className="surface-card mb-4 p-3">
         <div className="flex flex-wrap items-center gap-2">
           <input
@@ -91,7 +213,7 @@ export function WarehouseManagementPage() {
             onKeyDown={(e) => {
               if (e.key === 'Enter') setSearch(draftSearch)
             }}
-            placeholder="SKU or Bin Rack"
+            placeholder={searchPlaceholder}
             className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm sm:min-w-[200px]"
           />
           <button
@@ -141,21 +263,47 @@ export function WarehouseManagementPage() {
             <ActionsMenu
               open={actionsOpen}
               onOpenChange={(open) => setOpenPanel(open ? 'actions' : null)}
-              hasSelection={!!selectedId}
+              hasSelection={hasSelection}
               canManageBinracks={isSupervisor}
-              onNew={() => setFormMode('create')}
+              onNew={() => {
+                if (view === 'trolleys') setBagFormMode('create')
+                else setFormMode('create')
+              }}
               onEdit={() => {
+                if (view === 'trolleys') {
+                  if (!selectedBagLabel) return
+                  setBagFormMode('edit')
+                  return
+                }
                 if (!selectedId) return
                 setFormMode('edit')
               }}
               onDelete={async () => {
-                if (!selectedId || !isSupervisor) return
+                if (!isSupervisor) return
+                if (view === 'trolleys') {
+                  if (!selectedBagLabel) return
+                  if (
+                    !window.confirm(
+                      `Delete bag / trolley ${selectedBagLabel}? This cannot be undone.`
+                    )
+                  ) {
+                    return
+                  }
+                  try {
+                    await warehouseService.deleteBag(selectedBagLabel)
+                    setSelectedBagLabel(null)
+                    invalidate()
+                    showToast(`Deleted ${selectedBagLabel}`)
+                  } catch (e) {
+                    window.alert(e instanceof Error ? e.message : 'Delete failed')
+                  }
+                  return
+                }
+                if (!selectedId) return
                 const row = selected
                 if (!row) return
                 if (
-                  !window.confirm(
-                    `Delete location ${row.locationCode}? This cannot be undone.`
-                  )
+                  !window.confirm(`Delete location ${row.locationCode}? This cannot be undone.`)
                 ) {
                   return
                 }
@@ -169,16 +317,36 @@ export function WarehouseManagementPage() {
                 }
               }}
               onExport={() => {
-                const rows = binsQ.data ?? []
+                if (view === 'trolleys') {
+                  if (trolleyBags.length === 0) {
+                    window.alert('Nothing to export — no bags match the current filters.')
+                    return
+                  }
+                  downloadCsv(
+                    `trolleys-${new Date().toISOString().slice(0, 10)}.csv`,
+                    ['Bag', 'Products', 'Cartons', 'SKUs', 'Status'],
+                    trolleyBags.map((b) => [
+                      b.label,
+                      String(b.productCount),
+                      String(b.cartonIds.length),
+                      b.products.map((p) => p.sku).join('|'),
+                      b.productCount === 0 ? 'Empty' : 'In use',
+                    ])
+                  )
+                  showToast(`Exported ${trolleyBags.length} bag(s)`)
+                  return
+                }
+                const rows = viewRows
                 if (rows.length === 0) {
                   window.alert('Nothing to export — no locations in the current view.')
                   return
                 }
                 downloadCsv(
-                  `locations-${new Date().toISOString().slice(0, 10)}.csv`,
-                  ['Location', 'Zone', 'Kind', 'Fill%', 'Contents', 'Groups'],
+                  `locations-${view}-${new Date().toISOString().slice(0, 10)}.csv`,
+                  ['Location', 'Barcode', 'Zone', 'Kind', 'Fill%', 'Contents', 'Groups'],
                   rows.map((r) => [
                     r.locationCode,
+                    r.scanBarcode ?? '',
                     r.zoneType,
                     r.locationKind,
                     String(r.fillPercent),
@@ -194,6 +362,7 @@ export function WarehouseManagementPage() {
           </div>
         </div>
       </div>
+      ) : null}
 
       {toast ? (
         <div className="mb-3 rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
@@ -201,21 +370,41 @@ export function WarehouseManagementPage() {
         </div>
       ) : null}
 
-      <p className="mb-3 text-xs text-slate-500">
-        Zone badges: <span className="font-semibold text-amber-700">Goods In</span> = dock floor /
-        pallet bay for whole cartons · <span className="font-semibold text-emerald-700">Pick</span> =
-        product shelves · <span className="font-semibold text-violet-700">Inspection</span> = QA /
-        hold.
-      </p>
-
-      {binsQ.isLoading ? <LoadingPanel label="Loading locations…" /> : null}
-      {binsQ.error ? (
+      {view !== 'floor_map' && view !== 'trolleys' && binsQ.isLoading ? (
+        <LoadingPanel label="Loading locations…" />
+      ) : null}
+      {view === 'trolleys' && trolleysQ.isLoading ? <LoadingPanel label="Loading trolleys…" /> : null}
+      {binsQ.error && view !== 'trolleys' && view !== 'floor_map' ? (
         <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-900">
           {(binsQ.error as Error).message}
         </div>
       ) : null}
-      {binsQ.data ? (
-        <BinrackTable rows={binsQ.data} selectedId={selectedId} onSelect={setSelectedId} />
+      {trolleysQ.error && view === 'trolleys' ? (
+        <div className="rounded-2xl border border-red-200 bg-red-50 px-4 py-4 text-sm text-red-900">
+          {(trolleysQ.error as Error).message}
+        </div>
+      ) : null}
+
+      {view === 'goods_in' && binsQ.data ? (
+        <GoodsInExpandList rows={viewRows} selectedId={selectedId} onSelect={setSelectedId} />
+      ) : null}
+      {view === 'binracks' && binsQ.data ? (
+        <BinrackExpandList rows={viewRows} selectedId={selectedId} onSelect={setSelectedId} />
+      ) : null}
+      {view === 'inspection' && binsQ.data ? (
+        <InspectionExpandList rows={viewRows} selectedId={selectedId} onSelect={setSelectedId} />
+      ) : null}
+      {view === 'trolleys' && trolleysQ.data ? (
+        <LocationsTrolleyExpandList
+          bags={trolleyBags}
+          selectedLabel={selectedBagLabel}
+          onSelect={setSelectedBagLabel}
+          emptyLabel={
+            search || capacityRules.some((r) => r.enabled)
+              ? 'No bags match your search or filters.'
+              : 'No bags or trolleys yet.'
+          }
+        />
       ) : null}
 
       <CapacityFilterPanel
@@ -242,19 +431,21 @@ export function WarehouseManagementPage() {
       />
 
       <BinrackFormModal
-        open={formMode !== null && isSupervisor}
+        open={formMode !== null && isSupervisor && view !== 'trolleys' && view !== 'floor_map'}
         mode={formMode === 'edit' ? 'edit' : 'create'}
         initial={formMode === 'edit' ? selected : null}
+        lockedZoneType={lockedZoneType}
         onClose={() => setFormMode(null)}
         onSubmit={async (values) => {
           if (!isSupervisor) throw new Error('Only supervisors can manage locations')
           const payload = {
             locationCode: values.locationCode,
-            zoneType: values.zoneType,
+            zoneType: lockedZoneType ?? values.zoneType,
             storageGroups: parseGroups(values.storageGroups),
             capacity: { w: values.w, h: values.h, d: values.d },
             maxUnits: values.maxUnits,
             hierarchyPath: values.hierarchyPath,
+            scanBarcode: values.scanBarcode || null,
           }
           if (formMode === 'edit' && selectedId) {
             await warehouseService.updateBinrack(selectedId, payload)
@@ -263,6 +454,26 @@ export function WarehouseManagementPage() {
             const created = await warehouseService.createBinrack(payload)
             setSelectedId(created.id)
             showToast(`Created ${created.locationCode}`)
+          }
+          invalidate()
+        }}
+      />
+
+      <BagFormModal
+        open={bagFormMode !== null && isSupervisor && view === 'trolleys'}
+        mode={bagFormMode === 'edit' ? 'edit' : 'create'}
+        initialLabel={bagFormMode === 'edit' ? selectedBagLabel : null}
+        onClose={() => setBagFormMode(null)}
+        onSubmit={async (label) => {
+          if (!isSupervisor) throw new Error('Only supervisors can manage bags')
+          if (bagFormMode === 'edit' && selectedBagLabel) {
+            const next = await warehouseService.renameBag(selectedBagLabel, label)
+            setSelectedBagLabel(next)
+            showToast(`Updated ${next}`)
+          } else {
+            const created = await warehouseService.createBag(label)
+            setSelectedBagLabel(created)
+            showToast(`Created ${created}`)
           }
           invalidate()
         }}

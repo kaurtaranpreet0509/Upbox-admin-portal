@@ -42,10 +42,15 @@ export function BinrackTable(props: {
                 >
                   <td className="px-4 py-3">
                     <div className="flex items-center gap-2">
-                      <ZoneTypeBadge zone={row.zoneType} />
-                      <span className="font-mono text-xs font-semibold text-slate-900">
-                        {row.locationCode}
-                      </span>
+                      {row.zoneType !== 'pick' ? <ZoneTypeBadge zone={row.zoneType} /> : null}
+                      <div>
+                        <span className="font-mono text-xs font-semibold text-slate-900">
+                          {row.locationCode}
+                        </span>
+                        {row.scanBarcode ? (
+                          <p className="font-mono text-[11px] text-slate-500">{row.scanBarcode}</p>
+                        ) : null}
+                      </div>
                     </div>
                   </td>
                   <td className="px-4 py-3 text-slate-600">
@@ -133,7 +138,7 @@ function RackContentsModal(props: { row: BinrackRow; onClose: () => void }) {
         <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3">
           <div>
             <div className="flex items-center gap-2">
-              <ZoneTypeBadge zone={props.row.zoneType} />
+              {props.row.zoneType !== 'pick' ? <ZoneTypeBadge zone={props.row.zoneType} /> : null}
               <h3 className="font-heading text-lg text-slate-900">{props.row.locationCode}</h3>
             </div>
             <p className="mt-0.5 text-xs text-slate-500">

@@ -152,7 +152,7 @@ export function HierarchyPickerModal(props: {
               onClick={() => setZonesOpen((v) => !v)}
               className="flex w-full cursor-pointer items-center justify-between px-4 py-2.5 text-left text-sm font-semibold text-slate-800 hover:bg-slate-50"
             >
-              <span>Zones</span>
+              <span>Warehouse</span>
               <ChevronDown
                 className={cn('h-4 w-4 text-slate-400 transition', zonesOpen && 'rotate-180')}
               />

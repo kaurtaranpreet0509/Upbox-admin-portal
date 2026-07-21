@@ -3,13 +3,14 @@ export type CartonStatus =
   | 'RECEIVED'
   | 'ASSIGNED'
   | 'OPENED'
+  | 'UNPACK_IN_PROGRESS'
   | 'PUTAWAY_IN_PROGRESS'
   | 'COMPLETE'
 
-export type ProductStatus = 'PENDING' | 'SCANNED' | 'PLACED'
+export type ProductStatus = 'PENDING' | 'STAGED' | 'ASSIGNED' | 'PLACED' | 'DAMAGED'
 export type RackStatus = 'EMPTY' | 'BRAND_ASSIGNED' | 'FULL'
 export type ZoneType = 'goods_in' | 'pick' | 'inspection'
-export type WorkerRole = 'DOCK_RECEIVER' | 'SORTER' | 'PUTAWAY' | 'WMS_SUPERVISOR'
+export type WorkerRole = 'DOCK_RECEIVER' | 'UNPACKER' | 'PUTAWAY' | 'WMS_SUPERVISOR'
 export type CapacityOp = 'eq' | 'lt' | 'gt' | 'lte' | 'gte'
 export type MoveState = 'Open' | 'In Progress' | 'Complete'
 
@@ -24,10 +25,20 @@ export interface CapacityRule {
   enabled: boolean
 }
 
+export type HierarchyNodeType =
+  | 'warehouse'
+  | 'quadrant'
+  | 'aisle'
+  | 'rack'
+  | 'bay'
+  | 'shelf'
+  | 'zone'
+  | 'stack'
+
 export interface HierarchyNode {
   id: string
   label: string
-  type: 'zone' | 'aisle' | 'stack'
+  type: HierarchyNodeType
   children?: HierarchyNode[]
 }
 
@@ -53,14 +64,17 @@ export interface StagedCartonSummary {
   receivedAt: string | null
 }
 
-export type LocationKind = 'product_shelf' | 'carton_staging'
+export type LocationKind = 'product_shelf' | 'carton_staging' | 'inspection_hold'
 
 export interface BinrackRow {
   id: string
+  /** Human-readable code, e.g. W.A.R1.B1.3 for pick shelves */
   locationCode: string
   zoneType: ZoneType
   /** Goods In = carton floor/bay; Pick/Inspection = product shelves */
   locationKind: LocationKind
+  /** Scannable barcode for pick shelves; null for dock / inspection */
+  scanBarcode: string | null
   storageGroups: string[]
   capacity: { w: number; h: number; d: number }
   fillPercent: number
@@ -76,7 +90,10 @@ export interface BinrackRow {
 
 export interface RackSlot {
   id: string
+  /** Location code: Quadrant.Aisle.Rack.Bay.Shelf e.g. W.A.R1.B1.3 */
   label: string
+  /** Scannable barcode (pick racks). Null for dock staging slots. */
+  barcode: string | null
   brandId: string | null
   capacity: number
   filled: number
@@ -94,6 +111,12 @@ export interface ProductUnit {
   rackSlotId: string | null
   status: ProductStatus
   unitValue: number
+  /** Bag / trolley label while aside after unpack */
+  stagingContainerLabel: string | null
+  /** Putaway worker after supervisor assign */
+  assignedWorkerId: string | null
+  /** Target rack after supervisor assign */
+  assignedRackSlotId: string | null
 }
 
 export interface MasterCarton {
@@ -102,6 +125,8 @@ export interface MasterCarton {
   shipmentId: string
   status: CartonStatus
   assignedWorkerId: string | null
+  /** Single brand for all products in this carton */
+  brandId: string | null
   productCount: number
   receivedAt: string | null
   /** Goods In dock bay where the whole carton sits after receive */
@@ -120,7 +145,9 @@ export interface InboundShipment {
 
 export type WorkEventKind =
   | 'carton_received'
-  | 'carton_assigned'
+  | 'product_staged'
+  | 'product_damaged'
+  | 'products_assigned'
   | 'product_placed'
   | 'carton_completed'
 
@@ -133,15 +160,11 @@ export interface WorkActivityEvent {
   detail?: string
 }
 
-export interface ShiftRecord {
-  id: string
-  startedAt: string
-  endedAt: string | null
-}
-
 export interface WorkerWorkStats {
   cartonsReceived: number
-  cartonsAssigned: number
+  productsStaged: number
+  productsDamaged: number
+  productsAssigned: number
   productsPlaced: number
   cartonsCompleted: number
 }
@@ -151,14 +174,10 @@ export interface WarehouseWorker {
   name: string
   email: string
   role: WorkerRole
-  /** Putaway queue only — kept for SortAssign capacity chips */
-  openCartonCount: number
+  /** Putaway: count of products assigned and not yet placed */
+  openProductCount: number
   /** Timed activity log — filter by today / week / month */
   activity: WorkActivityEvent[]
-  /** Current open shift start, or null if clocked out */
-  shiftStartedAt: string | null
-  /** Completed + current shifts */
-  shifts: ShiftRecord[]
 }
 
 export interface StockMove {

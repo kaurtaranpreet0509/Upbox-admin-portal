@@ -8,7 +8,7 @@ import { roleJobLabel } from '@/lib/shifts'
 import type { WarehouseWorker, WorkEventKind, WorkerRole } from '@/types/inbound'
 import { cn } from '@/lib/cn'
 
-type WorkLane = 'dock' | 'sort' | 'putaway' | 'supervisor' | 'other'
+type WorkLane = 'dock' | 'unpack' | 'putaway' | 'supervisor' | 'other'
 type SortMode = 'time_desc' | 'time_asc' | 'work'
 
 type TeamEvent = {
@@ -29,11 +29,12 @@ function todayIso(): string {
 
 function laneForEvent(kind: WorkEventKind, role: WorkerRole): WorkLane {
   if (kind === 'carton_received') return 'dock'
-  if (kind === 'carton_assigned') return 'sort'
+  if (kind === 'product_staged' || kind === 'product_damaged') return 'unpack'
+  if (kind === 'products_assigned') return 'supervisor'
   if (kind === 'product_placed' || kind === 'carton_completed') return 'putaway'
   if (role === 'WMS_SUPERVISOR') return 'supervisor'
   if (role === 'DOCK_RECEIVER') return 'dock'
-  if (role === 'SORTER') return 'sort'
+  if (role === 'UNPACKER') return 'unpack'
   if (role === 'PUTAWAY') return 'putaway'
   return 'other'
 }
@@ -42,8 +43,8 @@ function laneLabel(lane: WorkLane): string {
   switch (lane) {
     case 'dock':
       return 'Dock'
-    case 'sort':
-      return 'Sort'
+    case 'unpack':
+      return 'Unpack'
     case 'putaway':
       return 'Putaway'
     case 'supervisor':
@@ -54,7 +55,7 @@ function laneLabel(lane: WorkLane): string {
 }
 
 function laneOrder(lane: WorkLane): number {
-  const order: WorkLane[] = ['dock', 'sort', 'putaway', 'supervisor', 'other']
+  const order: WorkLane[] = ['dock', 'unpack', 'putaway', 'supervisor', 'other']
   return order.indexOf(lane)
 }
 
@@ -62,8 +63,8 @@ function roleForLane(lane: WorkLane): WorkerRole | null {
   switch (lane) {
     case 'dock':
       return 'DOCK_RECEIVER'
-    case 'sort':
-      return 'SORTER'
+    case 'unpack':
+      return 'UNPACKER'
     case 'putaway':
       return 'PUTAWAY'
     case 'supervisor':
@@ -159,7 +160,7 @@ export function TeamWorkPage() {
   const totals = useMemo(() => {
     const byLane: Record<WorkLane, number> = {
       dock: 0,
-      sort: 0,
+      unpack: 0,
       putaway: 0,
       supervisor: 0,
       other: 0,
@@ -199,8 +200,8 @@ export function TeamWorkPage() {
           <p className="mt-1 font-heading text-3xl text-slate-900">{totals.byLane.dock}</p>
         </div>
         <div className="surface-card p-4">
-          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Sort</p>
-          <p className="mt-1 font-heading text-3xl text-slate-900">{totals.byLane.sort}</p>
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Unpack</p>
+          <p className="mt-1 font-heading text-3xl text-slate-900">{totals.byLane.unpack}</p>
         </div>
         <div className="surface-card p-4">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-slate-500">Putaway</p>
@@ -235,7 +236,7 @@ export function TeamWorkPage() {
             >
               <option value="all">All</option>
               <option value="dock">Dock</option>
-              <option value="sort">Sort</option>
+              <option value="unpack">Unpack</option>
               <option value="putaway">Putaway</option>
               <option value="supervisor">Supervisor</option>
             </select>
@@ -386,7 +387,7 @@ export function TeamWorkPage() {
                             className={cn(
                               'inline-flex rounded-lg px-2 py-1 text-xs font-bold',
                               e.lane === 'dock' && 'bg-amber-50 text-amber-900 ring-1 ring-amber-200',
-                              e.lane === 'sort' && 'bg-sky-50 text-sky-900 ring-1 ring-sky-200',
+                              e.lane === 'unpack' && 'bg-sky-50 text-sky-900 ring-1 ring-sky-200',
                               e.lane === 'putaway' &&
                                 'bg-emerald-50 text-emerald-900 ring-1 ring-emerald-200',
                               e.lane === 'supervisor' &&

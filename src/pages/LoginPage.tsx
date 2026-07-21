@@ -7,9 +7,9 @@ import { roleHomePath } from '@/routes/roleRoutes'
 import type { ApiError } from '@/types/auth'
 
 const DEMO_ACCOUNTS = [
-  { email: 'dock@upbox.test', role: 'Dock Receiver (A)' },
-  { email: 'sort@upbox.test', role: 'Sorter (B)' },
-  { email: 'putaway@upbox.test', role: 'Putaway (C)' },
+  { email: 'dock@upbox.test', role: 'Dock Receiver' },
+  { email: 'unpack@upbox.test', role: 'Unpacker' },
+  { email: 'putaway@upbox.test', role: 'Putaway' },
   { email: 'supervisor@upbox.test', role: 'Supervisor' },
 ]
 

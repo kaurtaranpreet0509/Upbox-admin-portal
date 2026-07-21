@@ -16,7 +16,7 @@ export function ActionsMenu(props: {
 }) {
   const [internalOpen, setInternalOpen] = useState(false)
   const controlled = props.open !== undefined
-  const open = controlled ? props.open : internalOpen
+  const open = controlled ? Boolean(props.open) : internalOpen
   const setOpen = (next: boolean | ((prev: boolean) => boolean)) => {
     const value = typeof next === 'function' ? next(open) : next
     if (!controlled) setInternalOpen(value)

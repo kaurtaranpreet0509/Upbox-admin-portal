@@ -1,7 +1,7 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query'
 import { inboundService, warehouseService } from '@/services/inbound.service'
 import { useAuthStore } from '@/store/useAuthStore'
-import type { CapacityRule, ZoneType } from '@/types/inbound'
+import type { CapacityRule, MoveState, ZoneType } from '@/types/inbound'
 
 export function useShipments() {
   return useQuery({
@@ -10,26 +10,34 @@ export function useShipments() {
   })
 }
 
-export function useUnassignedCartons() {
+export function useReceivedCartons() {
   return useQuery({
-    queryKey: ['cartons', 'unassigned'],
-    queryFn: () => inboundService.getUnassignedCartons(),
+    queryKey: ['cartons', 'received'],
+    queryFn: () => inboundService.getReceivedCartons(),
     refetchInterval: 5000,
   })
 }
 
-export function useAssignedCartons() {
+export function useStagedProducts() {
   return useQuery({
-    queryKey: ['cartons', 'assigned'],
-    queryFn: () => inboundService.getAssignedCartons(),
-    refetchInterval: 5000,
+    queryKey: ['products', 'staged'],
+    queryFn: () => inboundService.getStagedProducts(),
+    refetchInterval: 4000,
   })
 }
 
-export function useMyCartons(workerId: string | null | undefined, asSupervisor = false) {
+export function useTrolleyBags() {
   return useQuery({
-    queryKey: ['cartons', 'mine', workerId, asSupervisor],
-    queryFn: () => inboundService.getMyCartons(workerId ?? '', asSupervisor),
+    queryKey: ['trolleys'],
+    queryFn: () => inboundService.listTrolleyBags(),
+    refetchInterval: 4000,
+  })
+}
+
+export function useMyAssignedProducts(workerId: string | null | undefined, asSupervisor = false) {
+  return useQuery({
+    queryKey: ['products', 'assigned', workerId, asSupervisor],
+    queryFn: () => inboundService.getMyAssignedProducts(workerId ?? '', asSupervisor),
     enabled: asSupervisor || !!workerId,
     refetchInterval: 4000,
   })
@@ -75,11 +83,24 @@ export function useHierarchy() {
   })
 }
 
-export function useMoves(search: string) {
+export function useMoves(filters: {
+  search: string
+  states?: MoveState[]
+  fromZones?: ZoneType[]
+  toZones?: ZoneType[]
+  usernames?: string[]
+}) {
   return useQuery({
-    queryKey: ['moves', search],
-    queryFn: () => warehouseService.listMoves(search),
+    queryKey: ['moves', filters],
+    queryFn: () => warehouseService.listMoves(filters),
     refetchInterval: 10000,
+  })
+}
+
+export function useMoveUsernames() {
+  return useQuery({
+    queryKey: ['move-usernames'],
+    queryFn: () => warehouseService.listMoveUsernames(),
   })
 }
 
@@ -88,28 +109,14 @@ export function useInvalidateInbound() {
   return () => {
     void qc.invalidateQueries({ queryKey: ['shipments'] })
     void qc.invalidateQueries({ queryKey: ['cartons'] })
+    void qc.invalidateQueries({ queryKey: ['products'] })
+    void qc.invalidateQueries({ queryKey: ['trolleys'] })
     void qc.invalidateQueries({ queryKey: ['workers'] })
     void qc.invalidateQueries({ queryKey: ['worker'] })
     void qc.invalidateQueries({ queryKey: ['racks'] })
     void qc.invalidateQueries({ queryKey: ['binracks'] })
     void qc.invalidateQueries({ queryKey: ['moves'] })
   }
-}
-
-export function useStartShift() {
-  const invalidate = useInvalidateInbound()
-  return useMutation({
-    mutationFn: (workerId: string) => inboundService.startShift(workerId),
-    onSuccess: () => invalidate(),
-  })
-}
-
-export function useEndShift() {
-  const invalidate = useInvalidateInbound()
-  return useMutation({
-    mutationFn: (workerId: string) => inboundService.endShift(workerId),
-    onSuccess: () => invalidate(),
-  })
 }
 
 export function useAssignWorkerJob() {
@@ -121,7 +128,7 @@ export function useAssignWorkerJob() {
       role,
     }: {
       workerId: string
-      role: 'DOCK_RECEIVER' | 'SORTER' | 'PUTAWAY'
+      role: 'DOCK_RECEIVER' | 'UNPACKER' | 'PUTAWAY'
     }) => inboundService.assignWorkerJob(workerId, role, supervisorId),
     onSuccess: () => invalidate(),
   })
@@ -145,18 +152,53 @@ export function useReceiveCarton() {
   })
 }
 
-export function useAssignCarton() {
+export function useOpenReceivedCarton() {
   const invalidate = useInvalidateInbound()
   return useMutation({
-    mutationFn: ({
-      cartonId,
-      workerId,
-      sorterId,
-    }: {
+    mutationFn: ({ barcode, unpackerId }: { barcode: string; unpackerId?: string | null }) =>
+      inboundService.openReceivedCarton(barcode, unpackerId),
+    onSuccess: () => invalidate(),
+  })
+}
+
+export function useScanProductToStaging() {
+  const invalidate = useInvalidateInbound()
+  return useMutation({
+    mutationFn: (input: {
+      rawScan: string
       cartonId: string
-      workerId: string
-      sorterId?: string | null
-    }) => inboundService.assignCarton(cartonId, workerId, sorterId),
+      containerLabel?: string | null
+      unpackerId?: string | null
+    }) =>
+      inboundService.scanProductToStaging(
+        input.rawScan,
+        input.cartonId,
+        input.containerLabel,
+        input.unpackerId
+      ),
+    onSuccess: () => invalidate(),
+  })
+}
+
+export function useSendProductToInspection() {
+  const invalidate = useInvalidateInbound()
+  return useMutation({
+    mutationFn: (input: {
+      rawScan: string
+      cartonId: string
+      unpackerId?: string | null
+    }) =>
+      inboundService.sendProductToInspection(input.rawScan, input.cartonId, input.unpackerId),
+    onSuccess: () => invalidate(),
+  })
+}
+
+export function useAssignStagedProducts() {
+  const invalidate = useInvalidateInbound()
+  const supervisorId = useAuthStore.getState().user?.workerId
+  return useMutation({
+    mutationFn: (input: { productIds: string[]; workerId: string; rackSlotId: string }) =>
+      inboundService.assignStagedProducts({ ...input, supervisorId }),
     onSuccess: () => invalidate(),
   })
 }

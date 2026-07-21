@@ -12,9 +12,15 @@ const ACCOUNTS: Record<string, { password: string; workerId: string; name: strin
     },
     'sort@upbox.test': {
       password: 'password123',
-      workerId: 'w-sort',
-      name: 'Bina Sorter',
-      defaultRole: 'SORTER',
+      workerId: 'w-unpack',
+      name: 'Bina Unpacker',
+      defaultRole: 'UNPACKER',
+    },
+    'unpack@upbox.test': {
+      password: 'password123',
+      workerId: 'w-unpack',
+      name: 'Bina Unpacker',
+      defaultRole: 'UNPACKER',
     },
     'putaway@upbox.test': {
       password: 'password123',

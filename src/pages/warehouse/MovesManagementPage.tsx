@@ -1,73 +1,144 @@
-import { useState } from 'react'
-import { Search } from 'lucide-react'
+import { useMemo, useState } from 'react'
+import { Filter, Search } from 'lucide-react'
 import { PageHeader } from '@/layout/PageHeader'
 import { LoadingPanel } from '@/components/common/UpboxLoading'
 import { ActionsMenu } from '@/components/warehouse/ActionsMenu'
+import {
+  MovesFilterPanel,
+  type MovesFilters,
+} from '@/components/warehouse/MovesFilterPanel'
 import { ZoneTypeBadge } from '@/components/common/Badges'
-import { useMoves } from '@/hooks/useInbound'
+import { useMoveUsernames, useMoves } from '@/hooks/useInbound'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { downloadCsv } from '@/lib/downloadCsv'
+import { cn } from '@/lib/cn'
+
+const emptyFilters: MovesFilters = {
+  states: [],
+  fromZones: [],
+  toZones: [],
+  usernames: [],
+}
 
 export function MovesManagementPage() {
   const [draft, setDraft] = useState('')
   const [search, setSearch] = useState('')
+  const [filterOpen, setFilterOpen] = useState(false)
+  const [actionsOpen, setActionsOpen] = useState(false)
+  const [filters, setFilters] = useState<MovesFilters>(emptyFilters)
   const [toast, setToast] = useState<string | null>(null)
-  const movesQ = useMoves(search)
+
+  const queryFilters = useMemo(
+    () => ({
+      search,
+      states: filters.states,
+      fromZones: filters.fromZones,
+      toZones: filters.toZones,
+      usernames: filters.usernames,
+    }),
+    [search, filters]
+  )
+
+  const movesQ = useMoves(queryFilters)
+  const usersQ = useMoveUsernames()
+
+  const hasActiveFilters =
+    filters.states.length > 0 ||
+    filters.fromZones.length > 0 ||
+    filters.toZones.length > 0 ||
+    filters.usernames.length > 0
 
   const showToast = (msg: string) => {
     setToast(msg)
     setTimeout(() => setToast(null), 2500)
   }
 
+  const clearFilters = () => {
+    setFilters(emptyFilters)
+    showToast('Cleared filters')
+  }
+
   return (
     <div>
       <PageHeader title="Moves Management" />
 
-      <div className="surface-card mb-4 flex flex-wrap items-center gap-2 p-3">
-        <input
-          value={draft}
-          onChange={(e) => setDraft(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') setSearch(draft)
-          }}
-          placeholder="SKU / Batch / Location / User"
-          className="min-w-[220px] flex-1 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm"
-        />
-        <button
-          type="button"
-          onClick={() => setSearch(draft)}
-          className="cursor-pointer rounded-lg border border-slate-300 p-2 text-slate-600 hover:bg-slate-50"
-          aria-label="Search"
-        >
-          <Search className="h-4 w-4" />
-        </button>
-        <div className="ml-auto flex items-center gap-2">
-          <ActionsMenu
-            canManageBinracks={false}
-            onExport={() => {
-              const rows = movesQ.data ?? []
-              if (rows.length === 0) {
-                window.alert('Nothing to export — no moves in the current view.')
-                return
-              }
-              downloadCsv(
-                `moves-${new Date().toISOString().slice(0, 10)}.csv`,
-                ['Username', 'SKU', 'Batch', 'From', 'FromZone', 'To', 'ToZone', 'Quantity', 'State'],
-                rows.map((m) => [
-                  m.username,
-                  m.sku,
-                  m.batchNo ?? '',
-                  m.fromLabel,
-                  m.fromZone,
-                  m.toLabel ?? '',
-                  m.toZone ?? '',
-                  String(m.quantity),
-                  m.state,
-                ])
-              )
-              showToast(`Exported ${rows.length} move(s)`)
+      <div className="surface-card mb-4 p-3">
+        <div className="flex flex-wrap items-center gap-2">
+          <input
+            value={draft}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') setSearch(draft)
             }}
+            placeholder="SKU / Batch / Location / User / State…"
+            className="min-w-0 flex-1 rounded-lg border border-slate-300 bg-slate-50 px-3 py-2 text-sm sm:min-w-[220px]"
           />
+          <button
+            type="button"
+            onClick={() => setSearch(draft)}
+            className="cursor-pointer rounded-lg border border-slate-300 p-2 text-slate-600 hover:bg-slate-50"
+            aria-label="Search"
+          >
+            <Search className="h-4 w-4" />
+          </button>
+          <button
+            type="button"
+            onClick={() => {
+              setActionsOpen(false)
+              setFilterOpen((v) => !v)
+            }}
+            className={cn(
+              'cursor-pointer rounded-lg border p-2 hover:bg-slate-50',
+              filterOpen || hasActiveFilters
+                ? 'border-primary-400 bg-primary-50 text-primary-700'
+                : 'border-slate-300 text-slate-600'
+            )}
+            aria-label="Filters"
+          >
+            <Filter className="h-4 w-4" />
+          </button>
+          {hasActiveFilters ? (
+            <button
+              type="button"
+              onClick={clearFilters}
+              className="cursor-pointer rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-50"
+            >
+              Clear all
+            </button>
+          ) : null}
+          <div className="ml-auto flex items-center gap-2">
+            <ActionsMenu
+              open={actionsOpen}
+              onOpenChange={(open) => {
+                setActionsOpen(open)
+                if (open) setFilterOpen(false)
+              }}
+              canManageBinracks={false}
+              onExport={() => {
+                const rows = movesQ.data ?? []
+                if (rows.length === 0) {
+                  window.alert('Nothing to export — no moves in the current view.')
+                  return
+                }
+                downloadCsv(
+                  `moves-${new Date().toISOString().slice(0, 10)}.csv`,
+                  ['Username', 'SKU', 'Batch', 'From', 'FromZone', 'To', 'ToZone', 'Quantity', 'State'],
+                  rows.map((m) => [
+                    m.username,
+                    m.sku,
+                    m.batchNo ?? '',
+                    m.fromLabel,
+                    m.fromZone,
+                    m.toLabel ?? '',
+                    m.toZone ?? '',
+                    String(m.quantity),
+                    m.state,
+                  ])
+                )
+                showToast(`Exported ${rows.length} move(s)`)
+              }}
+            />
+          </div>
         </div>
       </div>
 
@@ -79,7 +150,11 @@ export function MovesManagementPage() {
 
       {movesQ.isLoading ? <LoadingPanel label="Loading moves…" /> : null}
       {movesQ.data && movesQ.data.length === 0 ? (
-        <EmptyState title="No moves found" />
+        <EmptyState
+          title={
+            search || hasActiveFilters ? 'No moves match your search or filters' : 'No moves found'
+          }
+        />
       ) : null}
 
       {movesQ.data && movesQ.data.length > 0 ? (
@@ -133,6 +208,15 @@ export function MovesManagementPage() {
           </div>
         </div>
       ) : null}
+
+      <MovesFilterPanel
+        open={filterOpen}
+        filters={filters}
+        usernameOptions={usersQ.data ?? []}
+        onChange={setFilters}
+        onClear={clearFilters}
+        onClose={() => setFilterOpen(false)}
+      />
     </div>
   )
 }

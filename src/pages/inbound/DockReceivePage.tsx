@@ -2,10 +2,11 @@ import { useMemo, useState } from 'react'
 import { PageHeader } from '@/layout/PageHeader'
 import { ScanInput } from '@/components/common/ScanInput'
 import { ScanFeedbackCard } from '@/components/common/ScanFeedbackCard'
-import { CartonStatusBadge } from '@/components/common/Badges'
 import { LoadingPanel } from '@/components/common/UpboxLoading'
+import { CartonExpandList } from '@/components/common/ExpandLists'
 import { useReceiveCarton, useShipments } from '@/hooks/useInbound'
 import { useAuthStore } from '@/store/useAuthStore'
+import { inboundService } from '@/services/inbound.service'
 
 export function DockReceivePage() {
   const authUser = useAuthStore((s) => s.user)
@@ -65,7 +66,11 @@ export function DockReceivePage() {
               placeholder="Scan carton barcode…"
               onScan={async (barcode) => {
                 try {
-                  const result = await receive.mutateAsync({ barcode, workerId: myWorkerId })
+                  const cartonCode = await inboundService.requireCartonScan(barcode)
+                  const result = await receive.mutateAsync({
+                    barcode: cartonCode,
+                    workerId: myWorkerId,
+                  })
                   if (result.alreadyReceived) {
                     setFeedback({
                       tone: 'warn',
@@ -102,34 +107,11 @@ export function DockReceivePage() {
             ) : null}
           </div>
 
-          <div className="surface-panel overflow-hidden">
-            <table className="min-w-full border-collapse text-left text-sm">
-              <thead className="border-b border-slate-200 bg-slate-50 text-[11px] font-semibold uppercase tracking-wide text-slate-500">
-                <tr>
-                  <th className="px-4 py-3">Carton</th>
-                  <th className="px-4 py-3">Barcode</th>
-                  <th className="px-4 py-3">Products</th>
-                  <th className="px-4 py-3">Status</th>
-                  <th className="px-4 py-3">Time</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-slate-100">
-                {shipment.cartons.map((c) => (
-                  <tr key={c.id} className="hover:bg-indigo-50/40">
-                    <td className="px-4 py-3 font-semibold text-slate-900">{c.id}</td>
-                    <td className="px-4 py-3 font-mono text-xs">{c.barcode}</td>
-                    <td className="px-4 py-3">{c.productCount}</td>
-                    <td className="px-4 py-3">
-                      <CartonStatusBadge status={c.status} />
-                    </td>
-                    <td className="px-4 py-3 font-mono text-xs text-slate-600">
-                      {c.receivedAt ? new Date(c.receivedAt).toLocaleTimeString() : '—'}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+          <CartonExpandList
+            cartons={shipment.cartons}
+            title="Shipment cartons"
+            emptyLabel="No cartons on this shipment."
+          />
         </>
       ) : null}
     </div>

@@ -3,10 +3,10 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query'
 import { AppShell } from '@/layout/AppShell'
 import { InboundRoleRouter } from '@/layout/InboundRoleRouter'
 import { RequireAuth, RequireInboundRole } from '@/routes/RequireAuth'
-import { RequireOnShift } from '@/routes/RequireOnShift'
 import { LoginPage } from '@/pages/LoginPage'
 import { DockReceivePage } from '@/pages/inbound/DockReceivePage'
-import { SortAssignPage } from '@/pages/inbound/SortAssignPage'
+import { UnpackPage } from '@/pages/inbound/UnpackPage'
+import { AssignPutawayPage } from '@/pages/inbound/AssignPutawayPage'
 import { PutawayPage } from '@/pages/inbound/PutawayPage'
 import { DashboardPage } from '@/pages/inbound/DashboardPage'
 import { MyWorkPage } from '@/pages/inbound/MyWorkPage'
@@ -15,6 +15,9 @@ import { WorkerDetailPage } from '@/pages/inbound/WorkerDetailPage'
 import { TeamWorkPage } from '@/pages/inbound/TeamWorkPage'
 import { WarehouseManagementPage } from '@/pages/warehouse/WarehouseManagementPage'
 import { MovesManagementPage } from '@/pages/warehouse/MovesManagementPage'
+import { InventoryManagementPage } from '@/pages/inventory/InventoryManagementPage'
+import { RackUtilizationPage } from '@/pages/inventory/RackUtilizationPage'
+import { IncomingOrdersPage } from '@/pages/inventory/IncomingOrdersPage'
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -37,7 +40,9 @@ export function App() {
 
               <Route
                 element={
-                  <RequireInboundRole roles={['DOCK_RECEIVER', 'SORTER', 'PUTAWAY', 'WMS_SUPERVISOR']} />
+                  <RequireInboundRole
+                    roles={['DOCK_RECEIVER', 'UNPACKER', 'PUTAWAY', 'WMS_SUPERVISOR']}
+                  />
                 }
               >
                 <Route path="/inbound/my-work" element={<MyWorkPage />} />
@@ -47,23 +52,23 @@ export function App() {
                 <Route path="/inbound/workers" element={<WorkersPage />} />
                 <Route path="/inbound/workers/:workerId" element={<WorkerDetailPage />} />
                 <Route path="/inbound/team-work" element={<TeamWorkPage />} />
+                <Route path="/inbound/assign-putaway" element={<AssignPutawayPage />} />
+                <Route path="/inbound/dashboard" element={<DashboardPage />} />
+                <Route path="/warehouse" element={<WarehouseManagementPage />} />
+                <Route path="/warehouse/moves" element={<MovesManagementPage />} />
+                <Route path="/inventory" element={<InventoryManagementPage />} />
+                <Route path="/inventory/utilization" element={<RackUtilizationPage />} />
+                <Route path="/inventory/incoming" element={<IncomingOrdersPage />} />
               </Route>
 
-              <Route element={<RequireOnShift />}>
-                <Route element={<RequireInboundRole roles={['DOCK_RECEIVER']} />}>
-                  <Route path="/inbound/dock-receive" element={<DockReceivePage />} />
-                </Route>
-                <Route element={<RequireInboundRole roles={['SORTER']} />}>
-                  <Route path="/inbound/sort-assign" element={<SortAssignPage />} />
-                </Route>
-                <Route element={<RequireInboundRole roles={['PUTAWAY']} />}>
-                  <Route path="/inbound/putaway" element={<PutawayPage />} />
-                </Route>
-                <Route element={<RequireInboundRole roles={['WMS_SUPERVISOR']} />}>
-                  <Route path="/inbound/dashboard" element={<DashboardPage />} />
-                  <Route path="/warehouse" element={<WarehouseManagementPage />} />
-                  <Route path="/warehouse/moves" element={<MovesManagementPage />} />
-                </Route>
+              <Route element={<RequireInboundRole roles={['DOCK_RECEIVER', 'WMS_SUPERVISOR']} />}>
+                <Route path="/inbound/dock-receive" element={<DockReceivePage />} />
+              </Route>
+              <Route element={<RequireInboundRole roles={['UNPACKER', 'WMS_SUPERVISOR']} />}>
+                <Route path="/inbound/unpack" element={<UnpackPage />} />
+              </Route>
+              <Route element={<RequireInboundRole roles={['PUTAWAY', 'WMS_SUPERVISOR']} />}>
+                <Route path="/inbound/putaway" element={<PutawayPage />} />
               </Route>
             </Route>
           </Route>

@@ -10,7 +10,9 @@ import type {
 export function emptyStats(): WorkerWorkStats {
   return {
     cartonsReceived: 0,
-    cartonsAssigned: 0,
+    productsStaged: 0,
+    productsDamaged: 0,
+    productsAssigned: 0,
     productsPlaced: 0,
     cartonsCompleted: 0,
   }
@@ -24,12 +26,11 @@ export function periodStart(period: WorkPeriod, now = new Date()): Date {
   }
   if (period === 'week') {
     const day = d.getDay()
-    const diff = day === 0 ? 6 : day - 1 // Monday start
+    const diff = day === 0 ? 6 : day - 1
     d.setDate(d.getDate() - diff)
     d.setHours(0, 0, 0, 0)
     return d
   }
-  // month
   d.setDate(1)
   d.setHours(0, 0, 0, 0)
   return d
@@ -58,7 +59,9 @@ export function summarizeActivity(activity: WorkActivityEvent[]): WorkerWorkStat
   let firstAt: string | null = null
   for (const e of activity) {
     if (e.kind === 'carton_received') stats.cartonsReceived += 1
-    if (e.kind === 'carton_assigned') stats.cartonsAssigned += 1
+    if (e.kind === 'product_staged') stats.productsStaged += 1
+    if (e.kind === 'product_damaged') stats.productsDamaged += 1
+    if (e.kind === 'products_assigned') stats.productsAssigned += 1
     if (e.kind === 'product_placed') stats.productsPlaced += 1
     if (e.kind === 'carton_completed') stats.cartonsCompleted += 1
     if (!lastAt || e.at > lastAt) lastAt = e.at
@@ -75,8 +78,11 @@ export function workerActivitySummary(
   switch (w.role) {
     case 'DOCK_RECEIVER':
       return { label: 'Cartons received', qty: stats.cartonsReceived }
-    case 'SORTER':
-      return { label: 'Cartons assigned', qty: stats.cartonsAssigned }
+    case 'UNPACKER':
+      return {
+        label: 'Staged / damaged',
+        qty: stats.productsStaged + stats.productsDamaged,
+      }
     case 'PUTAWAY':
       return { label: 'Products placed', qty: stats.productsPlaced }
     case 'WMS_SUPERVISOR':
@@ -84,7 +90,8 @@ export function workerActivitySummary(
         label: 'Actions done',
         qty:
           stats.cartonsReceived +
-          stats.cartonsAssigned +
+          stats.productsStaged +
+          stats.productsAssigned +
           stats.productsPlaced +
           stats.cartonsCompleted,
       }
@@ -97,8 +104,8 @@ export function roleWorkTitle(role: WorkerRole): string {
   switch (role) {
     case 'DOCK_RECEIVER':
       return 'My dock work'
-    case 'SORTER':
-      return 'My sort work'
+    case 'UNPACKER':
+      return 'My unpack work'
     case 'PUTAWAY':
       return 'My putaway work'
     case 'WMS_SUPERVISOR':
@@ -128,22 +135,27 @@ export function periodLabel(period: WorkPeriod): string {
 export function workCardsForRole(
   role: WorkerRole,
   stats: WorkerWorkStats,
-  openCartonCount: number
+  openProductCount: number
 ): { label: string; value: number }[] {
   if (role === 'DOCK_RECEIVER') return [{ label: 'Received', value: stats.cartonsReceived }]
-  if (role === 'SORTER') return [{ label: 'Assigned', value: stats.cartonsAssigned }]
+  if (role === 'UNPACKER') {
+    return [
+      { label: 'Staged', value: stats.productsStaged },
+      { label: 'Damaged', value: stats.productsDamaged },
+    ]
+  }
   if (role === 'PUTAWAY') {
     return [
       { label: 'Placed', value: stats.productsPlaced },
       { label: 'Done', value: stats.cartonsCompleted },
-      { label: 'Open', value: openCartonCount },
+      { label: 'Open', value: openProductCount },
     ]
   }
   return [
     { label: 'Received', value: stats.cartonsReceived },
-    { label: 'Assigned', value: stats.cartonsAssigned },
+    { label: 'Staged', value: stats.productsStaged },
+    { label: 'Assigned', value: stats.productsAssigned },
     { label: 'Placed', value: stats.productsPlaced },
-    { label: 'Done', value: stats.cartonsCompleted },
   ]
 }
 
@@ -157,7 +169,6 @@ export function makeWorkEvent(
   return { id: `we-${Date.now()}-${eventSeq}`, kind, at, detail }
 }
 
-/** Seed sample timed events so week/month views have data */
 export function seedWorkerActivity(_workerId: string, role: WorkerRole): WorkActivityEvent[] {
   const now = Date.now()
   const hours = (h: number) => new Date(now - h * 3600_000).toISOString()
@@ -175,11 +186,12 @@ export function seedWorkerActivity(_workerId: string, role: WorkerRole): WorkAct
       makeWorkEvent('carton_received', 'CTN-demo2', days(8)),
     ]
   }
-  if (role === 'SORTER') {
+  if (role === 'UNPACKER') {
     return [
-      makeWorkEvent('carton_assigned', 'CTN-001 → Ravi', hours(1)),
-      makeWorkEvent('carton_assigned', 'CTN-demo', days(1)),
-      makeWorkEvent('carton_assigned', 'CTN-old', days(10)),
+      makeWorkEvent('product_staged', '890100001 → Bag-1', hours(1)),
+      makeWorkEvent('product_staged', '890100002 → Bag-1', hours(1.1)),
+      makeWorkEvent('product_staged', 'CTN-demo', days(1)),
+      makeWorkEvent('product_staged', 'CTN-old', days(10)),
     ]
   }
   if (role === 'PUTAWAY') {
@@ -191,10 +203,9 @@ export function seedWorkerActivity(_workerId: string, role: WorkerRole): WorkAct
       makeWorkEvent('product_placed', 'NK-old', days(12)),
     ]
   }
-  // supervisor sample
   return [
     makeWorkEvent('carton_received', 'Supervised receive', hours(3)),
-    makeWorkEvent('carton_assigned', 'Supervised assign', days(1)),
+    makeWorkEvent('products_assigned', 'Supervised assign', days(1)),
     makeWorkEvent('product_placed', 'Supervised putaway', days(2)),
     makeWorkEvent('carton_completed', 'Supervised complete', days(9)),
   ]

@@ -7,6 +7,7 @@ const CARTON_TONES: Record<CartonStatus, string> = {
   RECEIVED: 'bg-amber-50 text-amber-950 ring-amber-200',
   ASSIGNED: 'bg-sky-50 text-sky-900 ring-sky-200',
   OPENED: 'bg-indigo-50 text-indigo-900 ring-indigo-200',
+  UNPACK_IN_PROGRESS: 'bg-cyan-50 text-cyan-900 ring-cyan-200',
   PUTAWAY_IN_PROGRESS: 'bg-violet-50 text-violet-900 ring-violet-200',
   COMPLETE: 'bg-emerald-50 text-emerald-900 ring-emerald-200',
 }

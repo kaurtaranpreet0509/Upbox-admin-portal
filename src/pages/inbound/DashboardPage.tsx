@@ -15,13 +15,14 @@ export function DashboardPage() {
     capacityRules: CAPACITY_OPS.map(({ op }) => ({ op, value: 0, enabled: false })),
     hierarchyIds: [],
   })
-  const movesQ = useMoves('')
+  const movesQ = useMoves({ search: '' })
 
   const shipment = shipmentsQ.data?.[0]
   const cartons = shipment?.cartons ?? []
   const received = cartons.filter((c) => c.status !== 'PENDING').length
-  const complete = cartons.filter((c) => c.status === 'COMPLETE').length
   const allProducts = cartons.flatMap((c) => c.products)
+  const staged = allProducts.filter((p) => p.status === 'STAGED').length
+  const assigned = allProducts.filter((p) => p.status === 'ASSIGNED').length
   const placed = allProducts.filter((p) => p.status === 'PLACED').length
 
   return (
@@ -30,6 +31,12 @@ export function DashboardPage() {
         title="Inbound overview"
         actions={
           <div className="flex gap-2">
+            <Link
+              to="/inbound/assign-putaway"
+              className="cursor-pointer rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
+            >
+              Assign putaway
+            </Link>
             <Link
               to="/warehouse"
               className="cursor-pointer rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:bg-slate-50"
@@ -48,17 +55,14 @@ export function DashboardPage() {
 
       {(shipmentsQ.isLoading || binsQ.isLoading) && <LoadingPanel label="Loading overview…" />}
 
-      <div className="mb-6 grid gap-4 sm:grid-cols-3">
+      <div className="mb-6 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
         <StatCard
           label="Cartons received"
           value={`${received} / ${cartons.length}`}
           sub={shipment?.poNumber}
         />
-        <StatCard
-          label="Cartons complete"
-          value={`${complete} / ${cartons.length}`}
-          sub={`${Math.round((complete / Math.max(1, cartons.length)) * 100)}%`}
-        />
+        <StatCard label="Products staged" value={`${staged}`} sub="Awaiting assign" />
+        <StatCard label="Assigned to putaway" value={`${assigned}`} sub="On floor queues" />
         <StatCard
           label="Products placed"
           value={`${placed} / ${allProducts.length}`}
