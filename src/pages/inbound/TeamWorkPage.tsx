@@ -1,5 +1,5 @@
-import { useMemo, useState } from 'react'
-import { Clock3, ListOrdered } from 'lucide-react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { ChevronDown, Clock3, ListOrdered, Search, X } from 'lucide-react'
 import { PageHeader } from '@/layout/PageHeader'
 import { LoadingPanel } from '@/components/common/UpboxLoading'
 import { useWorkers } from '@/hooks/useInbound'
@@ -58,6 +58,21 @@ function laneOrder(lane: WorkLane): number {
   return order.indexOf(lane)
 }
 
+function roleForLane(lane: WorkLane): WorkerRole | null {
+  switch (lane) {
+    case 'dock':
+      return 'DOCK_RECEIVER'
+    case 'sort':
+      return 'SORTER'
+    case 'putaway':
+      return 'PUTAWAY'
+    case 'supervisor':
+      return 'WMS_SUPERVISOR'
+    default:
+      return null
+  }
+}
+
 function actionLabel(kind: WorkEventKind): string {
   return kind.replaceAll('_', ' ')
 }
@@ -87,16 +102,47 @@ export function TeamWorkPage() {
   const [sortMode, setSortMode] = useState<SortMode>('time_desc')
   const [workFilter, setWorkFilter] = useState<WorkLane | 'all'>('all')
   const [nameFilter, setNameFilter] = useState<string>('all')
+  const [nameQuery, setNameQuery] = useState('')
   const [dayFilter, setDayFilter] = useState<string>(todayIso())
 
   const workers = workersQ.data ?? []
   const allEvents = useMemo(() => collectEvents(workers), [workers])
 
+  /** Workers available for the Name combobox (scoped by work type). */
+  const workersForWork = useMemo(() => {
+    let list = workers
+    if (workFilter !== 'all') {
+      const role = roleForLane(workFilter)
+      list = role ? workers.filter((w) => w.role === role) : []
+    }
+    return [...list].sort((a, b) => a.name.localeCompare(b.name))
+  }, [workers, workFilter])
+
+  const nameOptions = useMemo(() => {
+    const q = nameQuery.trim().toLowerCase()
+    if (!q) return workersForWork
+    return workersForWork.filter((w) => w.name.toLowerCase().includes(q))
+  }, [workersForWork, nameQuery])
+
+  // If work changes and the selected name is no longer valid, clear it
+  useEffect(() => {
+    if (nameFilter === 'all') return
+    if (!workersForWork.some((w) => w.id === nameFilter)) {
+      setNameFilter('all')
+      setNameQuery('')
+    }
+  }, [workersForWork, nameFilter])
+
   const filtered = useMemo(() => {
+    const q = nameQuery.trim().toLowerCase()
     const base = allEvents.filter((e) => {
       if (dayFilter && e.day !== dayFilter) return false
       if (workFilter !== 'all' && e.lane !== workFilter) return false
-      if (nameFilter !== 'all' && e.workerId !== nameFilter) return false
+      if (nameFilter !== 'all') {
+        if (e.workerId !== nameFilter) return false
+      } else if (q && !e.workerName.toLowerCase().includes(q)) {
+        return false
+      }
       return true
     })
     const sorted = [...base]
@@ -108,7 +154,7 @@ export function TeamWorkPage() {
       return b.at.localeCompare(a.at)
     })
     return sorted
-  }, [allEvents, sortMode, workFilter, nameFilter, dayFilter])
+  }, [allEvents, sortMode, workFilter, nameFilter, nameQuery, dayFilter])
 
   const totals = useMemo(() => {
     const byLane: Record<WorkLane, number> = {
@@ -133,7 +179,14 @@ export function TeamWorkPage() {
   const clearFilters = () => {
     setWorkFilter('all')
     setNameFilter('all')
+    setNameQuery('')
     setDayFilter(todayIso())
+  }
+
+  const onWorkChange = (value: WorkLane | 'all') => {
+    setWorkFilter(value)
+    setNameFilter('all')
+    setNameQuery('')
   }
 
   return (
@@ -171,13 +224,13 @@ export function TeamWorkPage() {
           </button>
         </div>
         <div className="grid gap-3 sm:grid-cols-3">
-          <label className="cursor-pointer block text-sm">
+          <label className="block cursor-pointer text-sm">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
               Work
             </span>
             <select
               value={workFilter}
-              onChange={(e) => setWorkFilter(e.target.value as WorkLane | 'all')}
+              onChange={(e) => onWorkChange(e.target.value as WorkLane | 'all')}
               className="w-full cursor-pointer rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
             >
               <option value="all">All</option>
@@ -187,24 +240,46 @@ export function TeamWorkPage() {
               <option value="supervisor">Supervisor</option>
             </select>
           </label>
-          <label className="cursor-pointer block text-sm">
+
+          <div className="text-sm">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
               Name
+              {workFilter !== 'all' ? (
+                <span className="ml-1 font-normal normal-case text-slate-400">
+                  ({laneLabel(workFilter)} only)
+                </span>
+              ) : null}
             </span>
-            <select
-              value={nameFilter}
-              onChange={(e) => setNameFilter(e.target.value)}
-              className="w-full cursor-pointer rounded-lg border border-slate-300 bg-white px-3 py-2 text-sm text-slate-800"
-            >
-              <option value="all">All workers</option>
-              {workers.map((w) => (
-                <option key={w.id} value={w.id}>
-                  {w.name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <label className="cursor-pointer block text-sm">
+            <WorkerNameCombobox
+              query={nameQuery}
+              onQueryChange={(q) => {
+                setNameQuery(q)
+                setNameFilter('all')
+              }}
+              selectedId={nameFilter}
+              options={nameOptions}
+              allLabel={
+                workFilter === 'all'
+                  ? 'All workers'
+                  : `All ${laneLabel(workFilter).toLowerCase()} workers`
+              }
+              onSelectAll={() => {
+                setNameFilter('all')
+                setNameQuery('')
+              }}
+              onSelectWorker={(w) => {
+                setNameFilter(w.id)
+                setNameQuery(w.name)
+              }}
+              emptyHint={
+                workFilter !== 'all'
+                  ? `No ${laneLabel(workFilter).toLowerCase()} workers match`
+                  : 'No workers match'
+              }
+            />
+          </div>
+
+          <label className="block cursor-pointer text-sm">
             <span className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
               Day
             </span>
@@ -331,6 +406,124 @@ export function TeamWorkPage() {
               </div>
             )}
           </section>
+        </div>
+      ) : null}
+    </div>
+  )
+}
+
+function WorkerNameCombobox(props: {
+  query: string
+  onQueryChange: (q: string) => void
+  selectedId: string
+  options: WarehouseWorker[]
+  allLabel: string
+  onSelectAll: () => void
+  onSelectWorker: (w: WarehouseWorker) => void
+  emptyHint: string
+}) {
+  const [open, setOpen] = useState(false)
+  const rootRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    if (!open) return
+    const onDoc = (e: MouseEvent) => {
+      if (!rootRef.current?.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDoc)
+    return () => document.removeEventListener('mousedown', onDoc)
+  }, [open])
+
+  const showClear = props.query.length > 0 || props.selectedId !== 'all'
+
+  return (
+    <div className="relative" ref={rootRef}>
+      <div className="relative">
+        <Search className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400" />
+        <input
+          type="text"
+          value={props.query}
+          onChange={(e) => {
+            props.onQueryChange(e.target.value)
+            setOpen(true)
+          }}
+          onFocus={() => setOpen(true)}
+          placeholder="Search or select worker…"
+          className="w-full rounded-lg border border-slate-300 bg-white py-2 pl-9 pr-16 text-sm text-slate-800"
+          autoComplete="off"
+        />
+        <div className="absolute right-1.5 top-1/2 flex -translate-y-1/2 items-center gap-0.5">
+          {showClear ? (
+            <button
+              type="button"
+              className="cursor-pointer rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+              aria-label="Clear name"
+              onClick={() => {
+                props.onSelectAll()
+                setOpen(false)
+              }}
+            >
+              <X className="h-3.5 w-3.5" />
+            </button>
+          ) : null}
+          <button
+            type="button"
+            className="cursor-pointer rounded p-1 text-slate-400 hover:bg-slate-100 hover:text-slate-700"
+            aria-label="Toggle name list"
+            onClick={() => setOpen((v) => !v)}
+          >
+            <ChevronDown className={cn('h-4 w-4 transition', open && 'rotate-180')} />
+          </button>
+        </div>
+      </div>
+
+      {open ? (
+        <div className="absolute z-40 mt-1 max-h-56 w-full overflow-y-auto rounded-xl border border-slate-200 bg-white py-1 shadow-lg">
+          <button
+            type="button"
+            className={cn(
+              'flex w-full cursor-pointer px-3 py-2 text-left text-sm hover:bg-slate-50',
+              props.selectedId === 'all' && !props.query.trim()
+                ? 'bg-primary-50 font-semibold text-primary-800'
+                : 'text-slate-700'
+            )}
+            onClick={() => {
+              props.onSelectAll()
+              setOpen(false)
+            }}
+          >
+            {props.allLabel}
+          </button>
+          {props.options.length === 0 ? (
+            <p className="px-3 py-2 text-xs text-slate-500">{props.emptyHint}</p>
+          ) : (
+            props.options.map((w) => (
+              <button
+                key={w.id}
+                type="button"
+                className={cn(
+                  'flex w-full cursor-pointer flex-col px-3 py-2 text-left hover:bg-slate-50',
+                  props.selectedId === w.id ? 'bg-primary-50' : ''
+                )}
+                onClick={() => {
+                  props.onSelectWorker(w)
+                  setOpen(false)
+                }}
+              >
+                <span
+                  className={cn(
+                    'text-sm',
+                    props.selectedId === w.id
+                      ? 'font-semibold text-primary-800'
+                      : 'font-medium text-slate-800'
+                  )}
+                >
+                  {w.name}
+                </span>
+                <span className="text-[11px] text-slate-500">{roleJobLabel(w.role)}</span>
+              </button>
+            ))
+          )}
         </div>
       ) : null}
     </div>
